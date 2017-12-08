@@ -1,5 +1,5 @@
 ---
-- hosts: slave1
+- hosts: slave
   tasks:
     - name: install software-properties-common
       apt: name=software-properties-common state=present 
@@ -11,4 +11,7 @@
       apt:
 #        update_cache: yes
         upgrade: dist
-      tags: sekhar
+      tags: installation
+
+     - name: Install the OpenStack client
+       apt: name= python-openstackclient state=present

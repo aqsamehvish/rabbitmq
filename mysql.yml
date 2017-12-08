@@ -1,5 +1,6 @@
 ---
-- hosts: slave1
+- hosts: slave
+  remote_user: root
   tasks:
     - name: database parameters
       debconf: name='mariadb-server' question='mysql-server/{{item}}' value='root' vtype='password'
@@ -8,7 +9,7 @@
         - root_password_again
 
     - name: install mysql
-      apt: name={{item}} state=present
+      apt: name={{ item }} state=present force=yes update_cache=yes cache_valid_time=3600
       with_items:
         - mariadb-server
         - python-mysqldb

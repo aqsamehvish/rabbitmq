@@ -1,5 +1,5 @@
 ---
-- hosts: slave1
+- hosts: slave
   tasks:
     - name: memcached instalation
       apt: name={{item}} state=present

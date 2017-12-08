@@ -1,0 +1,112 @@
+---
+- hosts: slave
+  tasks:
+    
+    - name: connect to database
+      mysql_db:
+        login_host: slave
+        login_user: root
+        login_password: root
+        name: keystone
+        state: present
+
+    - name: localhost keystone user
+      mysql_user:
+        login_host: slave
+        login_user: root
+        login_password: root
+        name: keystone
+        password: keystone
+        priv: keystone.*:ALL 
+        state: present
+
+    - name: database remote user
+      mysql_user:
+        host: '%' 
+        login_user: root
+        login_password: root
+        name: keystone
+        password: keystone
+        priv: keystone.*:ALL 
+        state: present
+
+    - name: token
+      shell: openssl rand -hex 10 > /root/token
+
+    - name: keystone service
+      shell: echo "manual" > /etc/init/keystone.override
+
+    - name: install keystone package
+      apt: name={{item}} state=latest
+      with_items: 
+        - keystone
+        - apache2
+        - libapache2-mod-wsgi
+      ignore_errors: yes
+
+    - name: keystone defaults
+      ini_file: dest=/etc/keystone/keystone.conf
+                section=DEFAULT
+                option=admin_token
+                value=c8485e2e319b7453cbf8
+                backup=yes
+      tags: token
+    - name: keystone database
+      ini_file: dest=/etc/keystone/keystone.conf
+                section=database
+                option=connection
+                value=mysql://keystone:keystone@slave/keystone
+                backup=yes
+
+    - name: token
+      ini_file: dest=/etc/keystone/keystone.conf
+                section=token
+                option=provider
+                value=fernet
+                backup=yes
+
+    - name: create database tables
+      shell: -s /bin/sh -c "keystone-manage db_sync" keystone
+      tags: dbsync
+    - name: initialize fernet keys
+      command: keystone-manage ssl_setup --keystone-user keystone --keystone-group keystone
+#      args: 
+#        creates: '/etc/keystone/fernet-keys/0'
+      tags:  fernet
+
+    - name: apache2.conf
+      lineinfile: dest=/etc/apache2/apache2.conf
+                  line='ServerName slave'
+
+    - name: create file
+      copy: src=/etc/ansible/yml/wsgi-keystone.conf dest=/etc/apache2/sites-available/wsgi-keystone.conf
+
+    - name: enable identity service virtual hosts
+      shell: ln -s /etc/apache2/sites-available/wsgi-keystone.conf /etc/apache2/sites-enabled
+      ignore_errors: yes
+     
+    - name: apache2 restart
+      service: name=apache2 state=restarted
+
+    - name: remove SQL lite database
+      shell: rm -f /var/lib/keystone/keystone.db
+
+    - name: replace admin token
+      shell: export OS_TOKEN=c8485e2e319b7453cbf8
+      tags: admintoken
+
+    - name: end point url
+      shell: export OS_URL=http://slave:35357/v3
+      tags: endpoint
+     
+    - name: identity api
+      shell: export OS_IDENTITY_API_VERSION=3
+      tags: identity
+      
+    - name: copy shell script
+      copy: src=/root/ansible/openstack/service.sh dest=/root
+      tags: copy
+
+    - name: service entity and API endpoints
+      shell: bash  /root/service.sh 
+      tags: service

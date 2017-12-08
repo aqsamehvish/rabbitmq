@@ -1,17 +1,14 @@
 ---
-- hosts: slave1
+- hosts: slave
+  remote_user: root 
   tasks:
-    - name: rabbirmq instalation
-      apt: name=rabbitmq-server state=present
+    - name: install package
+      apt: name={{ item }} state=present
+      with_items:
+        - rabbitmq-server
+      when: ansible_os_family == 'Debian'
 
-    - name: user add
-      rabbitmq_user:
-        user: dinesh
-        password: dinesh
-        permissions:
-          - vhost: /
-            configure_priv: .*
-            read_priv: .*
-            write_priv: .*
-        state: present
-      tags: sekhar
+    - name: add users
+      rabbitmq_user: user=openstack password=rabbit123 tags=administrator,{{item}} vhost=/ configure_priv=.* write_priv=.* read_priv=.* state=present
+      with_items:
+        - root

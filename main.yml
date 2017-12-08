@@ -1,0 +1,141 @@
+---
+- hosts: slave
+  remote_user: root
+  tasks:
+    - name: connect to database
+      mysql_db:
+        login_host: localhost
+        login_user: root
+        login_password: root
+        name: keystone
+        state: present
+     - name: Create database for keystone
+         #mysql_db: db={{ db.db_name }} state=present
+       command: mysql -u {{ root }} -p{{ root }} -e 'CREATE DATABASE {{ keystone }};'
+
+     - name: Create access to keystone database
+         #command: mysql -u root -padmin -e {{ item }}
+         #with_items:
+         #    - 'GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'localhost' IDENTIFIED BY 'KEYSTONE_DBPASS';'
+         #    - 'GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'%' IDENTIFIED BY 'KEYSTONE_DBPASS';'
+      template: src=/root/ansible/openstack/grant_prev.j2.yml dest=/tmp/grant_prev.sh mode=0777
+
+    - name: Grant Permission
+      shell: ./grant_prev.sh chdir=/tmp/
+
+    - name: Disable keystone service from starting automatically after installation
+      shell: 'echo "manual" > /etc/init/keystone.override'
+
+    - name: Install all the keystone packages
+      apt: name={{ item }} state=present
+      with_items:
+         - keystone
+         - python-openstackclient 
+         - apache2 
+         - libapache2-mod-wsgi 
+         - memcached 
+         - python-memcache
+
+    - name: Update /etc/keystone/keystone.conf
+      ini_file: dest=/etc/keystone/keystone.conf
+                 section=DEFAULT
+                 option=admin_token
+                 value=294a4c8a8a475f9b9836
+                 backup=yes
+
+    - name: Update keystone.conf
+      ini_file: dest=/etc/keystone/keystone.conf
+                 section=database
+                 option=connection 
+                 value=mysql://keystone:keystone123@slave/keystone
+                 backup=yes
+
+    - name: Update keystone.conf
+      ini_file: dest=/etc/keystone/keystone.conf
+                 section=memcache
+                 option=servers                                                       
+                 value=slave:11211
+                 backup=yes
+
+    - name: Update keystone.conf
+      ini_file: dest=/etc/keystone/keystone.conf
+                 section=token
+                 option=provider
+                 value=keystone.token.providers.uuid.Provider
+                 backup=yes
+
+    - name: Update keystone.conf
+      ini_file: dest=/etc/keystone/keystone.conf
+             section=token
+             option=driver
+             value=keystone.token.persistence.backends.memcache.Token
+             backup=yes
+
+    - name: Update keystone.conf
+      ini_file: dest=/etc/keystone/keystone.conf
+                section=revoke
+                option=driver
+                value=keystone.contrib.revoke.backends.sql.Revoke
+                backup=yes
+
+    - name: Update keystone.conf
+      ini_file: dest=/etc/keystone/keystone.conf
+                 section=DEFAULT
+                 option=verbose
+                 value=True
+                 backup=yes
+
+    - name: copy syncdb file
+      #shell: 'su -s /bin/sh -c "keystone-manage db_sync" keystone' 
+      template: src=../files/dbsync.j2 dest=/tmp/dbsync.sh mode=0777
+
+    - name: sync database
+      shell: ./dbsync.sh chdir=/tmp/
+
+    - name: Update server name to /etc/apache2/apache2.conf
+      #shell: echo "ServerName controller" >> /etc/apache2/apache2.conf  -- not required below onw working fine
+      lineinfile: dest=/etc/apache2/apache2.conf regexp="^ServerName slave" line="ServerName slave"
+
+    - name: Update contents to /etc/apache2/sites-available/wsgi-keystone.conf 
+      copy: src=../files/wsgi_keystone.conf dest=/etc/apache2/sites-available/wsgi-keystone.conf
+
+    - name: Enable the identity service
+      shell: ln -s /etc/apache2/sites-available/wsgi-keystone.conf /etc/apache2/sites-enabled
+
+    - name: Create the dir structure 
+      file: path=/var/www/cgi-bin/keystone state=directory
+
+
+    - name: Copy the WSGI components
+      #shell: curl http://git.openstack.org/cgit/openstack/keystone/plain/httpd/keystone.py?h=stable/kilo | tee /var/www/cgi-bin/keystone/main /var/www/cgi-bin/keystone/admin
+      get_url: url=http://git.openstack.org/cgit/openstack/keystone/plain/httpd/keystone.py?h=stable/kilo dest=/var/www/cgi-bin/keystone/main
+
+
+    - name: Copy the WSGI components
+      get_url: url=http://git.openstack.org/cgit/openstack/keystone/plain/httpd/keystone.py?h=stable/kilo dest=/var/www/cgi-bin/keystone/admin
+
+    - name: Adjust Ownership permission
+      #shell: chown -R keystone:keystone /var/www/cgi-bin/keystone
+      file:  path=/var/www/cgi-bin/keystone owner=keystone group=keystone recurse=yes mode=0755
+
+    - name: Service apache2 restart
+      service: name=apache2 state=restarted
+      tags:
+        - dbsync
+
+    - name: Removing sqlite db file
+      #shell: rm -f /var/lib/keystone/keystone.db
+      file: path=/var/lib/keystone/keystone.db state=absent
+      tags:
+          - dbsync
+
+    - name: Copy openrc
+      copy: src=../files/openrc.sh dest=/root/openrc.sh mode=0777      
+      tags:
+        - dbsync
+
+
+    - name: Create keystone service
+      command: 'openstack service create --name keystone --description "OpenStack Identity" identity --os-url {{ identity.os_url }} --os-token {{ identity.os_token }}' 
+      tags:
+          - dbsync1

@@ -1,0 +1,4 @@
+command: mysql -u root -proot -e {{ item }}
+with_items:
+    - 'GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'slave' IDENTIFIED BY 'KEYSTONE123';'
+    - 'GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'%' IDENTIFIED BY 'KEYSTONE123';'
