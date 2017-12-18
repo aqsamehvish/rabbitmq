@@ -1,0 +1,4 @@
+---
+- hosts: localhost
+- include: 
+   - installapache2.yml
